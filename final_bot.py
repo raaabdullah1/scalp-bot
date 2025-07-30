@@ -6,17 +6,14 @@ Integrates modular signal engine with working Telegram delivery
 
 import os
 import threading
-import asyncio
 import requests
 from flask import Flask, jsonify, render_template
 from dotenv import load_dotenv
 from datetime import datetime
 import time
 
-# Import core modules
-from core.signal_engine import SignalEngine
-from core.logger import SignalLogger
-from core.notifier import SignalNotifier
+# --- EARLY LOGGING ---
+print('[BOOT] Loading environment...')
 
 # Load environment variables and config
 load_dotenv()
@@ -26,26 +23,32 @@ try:
         BINANCE_API_KEY, BINANCE_SECRET_KEY, GMAIL_APP_PASSWORD,
         ACCOUNT_BALANCE, RISK_PERCENTAGE, MAX_DAILY_SIGNALS, COOLDOWN_MINUTES
     )
+    print('[BOOT] Loaded config.py')
 except ImportError:
-    print("Warning: config.py not found, using environment variables only")
+    print('[BOOT] config.py not found, using environment variables only')
     TELEGRAM_BOT_TOKEN = TELEGRAM_CHAT_ID = TELEGRAM_PROFIT_CHAT_ID = None
     BINANCE_API_KEY = BINANCE_SECRET_KEY = GMAIL_APP_PASSWORD = None
     ACCOUNT_BALANCE = RISK_PERCENTAGE = MAX_DAILY_SIGNALS = COOLDOWN_MINUTES = None
 
 app = Flask(__name__)
 
+# --- GLOBAL BOT STATE ---
+bot = None
+bot_init_error = None
+bot_init_time = None
+
+# --- BOT CLASS (UNCHANGED LOGIC) ---
 class EnhancedScalpBot:
     def __init__(self):
-        # Telegram settings (KEEPING WORKING DELIVERY)
+        print('[INIT] Starting EnhancedScalpBot.__init__')
+        # Telegram settings
         self.telegram_token = TELEGRAM_BOT_TOKEN or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
         self.telegram_chat_id = TELEGRAM_CHAT_ID or os.getenv('TELEGRAM_CHAT_ID')
         self.profit_chat_id = TELEGRAM_PROFIT_CHAT_ID or os.getenv('TELEGRAM_PROFIT_CHAT_ID') or self.telegram_chat_id
-        
         # Core components
         self.signal_engine = SignalEngine()
         self.logger = SignalLogger()
         self.notifier = SignalNotifier()
-        
         # Bot status
         self.running = False
         self.status = {
@@ -57,27 +60,20 @@ class EnhancedScalpBot:
             'last_scan_time': None,
             'market_count': 0
         }
-        
         # Signal tracking
         self.last_signals = []
         self.market_data = []
-
     def send_telegram_message(self, message, chat_id=None):
-        """Send message to Telegram (KEEPING WORKING DELIVERY)"""
         if not self.telegram_token:
             print("Telegram token not configured")
             return False
-        
         target_chat = chat_id or self.telegram_chat_id
         if not target_chat:
             print("Telegram chat ID not configured")
             return False
-
-        # Check for test mode
         if os.getenv('TEST_MODE') == 'true':
             print(f"TEST MODE: Would send Telegram message: {message[:100]}...")
             return True
-
         try:
             url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
             data = {
@@ -93,29 +89,19 @@ class EnhancedScalpBot:
         except Exception as e:
             print(f"Telegram error: {e}")
             return False
-
     def scan_and_generate_signals(self):
-        """Scan markets and generate signals"""
         try:
             print("🔍 Starting market scan...")
             self.status['current_scan'] = "Scanning markets..."
-            
-            # Scan markets first
             markets = self.signal_engine.scan_markets()
             self.status['market_count'] = len(markets)
-            
-            # Process markets and generate signals
             signals = self.signal_engine.process_markets(markets)
-            
             if signals:
                 print(f"✅ Generated {len(signals)} signals")
-                
-                # Send each signal
                 for signal in signals:
                     try:
                         # Format signal message
                         message = self.notifier.format_signal_message(signal)
-                        
                         # Send to main channel
                         if self.send_telegram_message(message):
                             print(f"✅ Signal sent for {signal['symbol']}")
@@ -332,4 +318,5 @@ if __name__ == '__main__':
     init_thread.daemon = True
     init_thread.start()
     
+    # Start Flask server immediately
     app.run(host='0.0.0.0', port=port, debug=False) 
