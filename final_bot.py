@@ -6,69 +6,57 @@ Integrates modular signal engine with working Telegram delivery
 
 import os
 import threading
+import asyncio
 import requests
 from flask import Flask, jsonify, render_template
 from dotenv import load_dotenv
 from datetime import datetime
 import time
 
-# --- EARLY LOGGING ---
-print('[BOOT] Loading environment...')
+# Import core modules
+from core.signal_engine import SignalEngine
+from core.logger import SignalLogger
+from core.notifier import SignalNotifier
 
 # Load environment variables and config
 load_dotenv()
+
+# Import configuration
 try:
-    from config import (
-        TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_PROFIT_CHAT_ID,
-        BINANCE_API_KEY, BINANCE_SECRET_KEY, GMAIL_APP_PASSWORD,
-        ACCOUNT_BALANCE, RISK_PERCENTAGE, MAX_DAILY_SIGNALS, COOLDOWN_MINUTES
-    )
-    print('[BOOT] Loaded config.py')
+    import bot_config
+    TELEGRAM_BOT_TOKEN = bot_config.TELEGRAM_BOT_TOKEN
+    TELEGRAM_CHAT_ID = bot_config.TELEGRAM_CHAT_ID
+    TELEGRAM_PROFIT_CHAT_ID = bot_config.TELEGRAM_PROFIT_CHAT_ID
+    BINANCE_API_KEY = bot_config.BINANCE_API_KEY
+    BINANCE_SECRET_KEY = bot_config.BINANCE_SECRET_KEY
+    GMAIL_APP_PASSWORD = bot_config.GMAIL_APP_PASSWORD
+    ACCOUNT_BALANCE = bot_config.ACCOUNT_BALANCE
+    RISK_PERCENTAGE = bot_config.RISK_PERCENTAGE
+    MAX_DAILY_SIGNALS = bot_config.MAX_DAILY_SIGNALS
+    COOLDOWN_MINUTES = bot_config.COOLDOWN_MINUTES
+    print(f"✅ Config loaded: Token={TELEGRAM_BOT_TOKEN[:20] if TELEGRAM_BOT_TOKEN else 'None'}...")
 except ImportError:
-    print('[BOOT] config.py not found, using environment variables only')
+    print("Warning: bot_config.py not found, using environment variables only")
     TELEGRAM_BOT_TOKEN = TELEGRAM_CHAT_ID = TELEGRAM_PROFIT_CHAT_ID = None
     BINANCE_API_KEY = BINANCE_SECRET_KEY = GMAIL_APP_PASSWORD = None
     ACCOUNT_BALANCE = RISK_PERCENTAGE = MAX_DAILY_SIGNALS = COOLDOWN_MINUTES = None
 
-# --- CATCH IMPORT ERRORS FOR CORE MODULES ---
-try:
-    from core.signal_engine import SignalEngine
-    print('[BOOT] Imported core.signal_engine.SignalEngine')
-except Exception as e:
-    print(f'[IMPORT ERROR] core.signal_engine: {e}')
-    raise
-try:
-    from core.logger import SignalLogger
-    print('[BOOT] Imported core.logger.SignalLogger')
-except Exception as e:
-    print(f'[IMPORT ERROR] core.logger: {e}')
-    raise
-try:
-    from core.notifier import SignalNotifier
-    print('[BOOT] Imported core.notifier.SignalNotifier')
-except Exception as e:
-    print(f'[IMPORT ERROR] core.notifier: {e}')
-    raise
-
 app = Flask(__name__)
 
-# --- GLOBAL BOT STATE ---
-bot = None
-bot_init_error = None
-bot_init_time = None
-
-# --- BOT CLASS (UNCHANGED LOGIC) ---
 class EnhancedScalpBot:
     def __init__(self):
-        print('[INIT] Starting EnhancedScalpBot.__init__')
-        # Telegram settings
-        self.telegram_token = TELEGRAM_BOT_TOKEN or os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('TELEGRAM_TOKEN')
-        self.telegram_chat_id = TELEGRAM_CHAT_ID or os.getenv('TELEGRAM_CHAT_ID')
-        self.profit_chat_id = TELEGRAM_PROFIT_CHAT_ID or os.getenv('TELEGRAM_PROFIT_CHAT_ID') or self.telegram_chat_id
+        # Telegram settings (KEEPING WORKING DELIVERY)
+        # Hardcoded credentials for testing
+        self.telegram_token = "7565219627:AAEfLNNvMLXEuZ-W1uAm4QjBWQ9tWwmannI"
+        self.telegram_chat_id = "7138380222"
+        self.profit_chat_id = "7138380222"
+        print(f"✅ Using hardcoded credentials: Token={self.telegram_token[:20]}...")
+        
         # Core components
         self.signal_engine = SignalEngine()
         self.logger = SignalLogger()
         self.notifier = SignalNotifier()
+        
         # Bot status
         self.running = False
         self.status = {
@@ -80,20 +68,27 @@ class EnhancedScalpBot:
             'last_scan_time': None,
             'market_count': 0
         }
+        
         # Signal tracking
         self.last_signals = []
         self.market_data = []
+
     def send_telegram_message(self, message, chat_id=None):
+        """Send message to Telegram (KEEPING WORKING DELIVERY)"""
         if not self.telegram_token:
             print("Telegram token not configured")
             return False
+        
         target_chat = chat_id or self.telegram_chat_id
         if not target_chat:
             print("Telegram chat ID not configured")
             return False
+
+        # Check for test mode
         if os.getenv('TEST_MODE') == 'true':
             print(f"TEST MODE: Would send Telegram message: {message[:100]}...")
             return True
+
         try:
             url = f"https://api.telegram.org/bot{self.telegram_token}/sendMessage"
             data = {
@@ -109,19 +104,29 @@ class EnhancedScalpBot:
         except Exception as e:
             print(f"Telegram error: {e}")
             return False
+
     def scan_and_generate_signals(self):
+        """Scan markets and generate signals"""
         try:
             print("🔍 Starting market scan...")
             self.status['current_scan'] = "Scanning markets..."
+            
+            # Scan markets first
             markets = self.signal_engine.scan_markets()
             self.status['market_count'] = len(markets)
+            
+            # Process markets and generate signals
             signals = self.signal_engine.process_markets(markets)
+            
             if signals:
                 print(f"✅ Generated {len(signals)} signals")
+                
+                # Send each signal
                 for signal in signals:
                     try:
                         # Format signal message
                         message = self.notifier.format_signal_message(signal)
+                        
                         # Send to main channel
                         if self.send_telegram_message(message):
                             print(f"✅ Signal sent for {signal['symbol']}")
@@ -194,107 +199,160 @@ class EnhancedScalpBot:
         self.running = False
         self.status['running'] = False
 
-# Global bot instance (initialized later)
-bot = None
+# Create bot instance
+bot = EnhancedScalpBot()
 
 # Flask routes
 @app.route('/')
 def home():
-    if bot is None:
-        return render_template('dashboard.html', bot_status={'running': False, 'status': 'Initializing...'})
     return render_template('dashboard.html', bot_status=bot.status)
 
 @app.route('/health')
 def health():
-    # Simple health check that responds immediately
     return jsonify({
-        'status': 'ok',
-        'service': 'scalpbot',
+        'status': 'enhanced_scalbot_ready',
+        'bot_running': bot.status['running'],
         'version': '2.0.0'
     })
 
-@app.route('/status')
-def get_status():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
+@app.route('/api/status')
+def api_status():
     return jsonify(bot.status)
 
-@app.route('/start', methods=['POST'])
-def start_bot():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
+@app.route('/api/start')
+def api_start():
     if not bot.running:
         bot.start()
-        return jsonify({'status': 'started'})
-    return jsonify({'status': 'already_running'}), 200
+        return jsonify({'status': 'Bot starting', 'running': True})
+    return jsonify({'status': 'Bot already running', 'running': True})
 
-@app.route('/stop', methods=['POST'])
-def stop_bot():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
+@app.route('/api/stop')
+def api_stop():
     if bot.running:
         bot.stop()
-        return jsonify({'status': 'stopped'})
-    return jsonify({'status': 'not_running'}), 200
+        return jsonify({'status': 'Bot stopping', 'running': False})
+    return jsonify({'status': 'Bot already stopped', 'running': False})
 
-@app.route('/test_telegram', methods=['POST'])
-def test_telegram():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
+@app.route('/api/test-signal')
+def test_signal():
+    """Send a test signal"""
     try:
         test_message = bot.notifier.format_test_message()
         success = bot.send_telegram_message(test_message)
+        
         return jsonify({
             'success': success,
-            'message': 'Test message sent' if success else 'Failed to send test message'
+            'message': 'Test signal sent - Enhanced ScalpBot Ready' if success else 'Failed to send test signal'
         })
     except Exception as e:
         return jsonify({
             'success': False,
+            'message': f'Error: {str(e)}'
+        })
+
+@app.route('/api/signals')
+def api_signals():
+    """Get recent signals"""
+    try:
+        return jsonify({
+            'signals': bot.last_signals,
+            'count': len(bot.last_signals)
+        })
+    except Exception as e:
+        return jsonify({
+            'signals': [],
+            'count': 0,
             'error': str(e)
-        }), 500
+        })
 
-@app.route('/signals')
-def get_signals():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
-    return jsonify({
-        'signals': bot.last_signals,
-        'count': len(bot.last_signals)
-    })
+@app.route('/api/statistics')
+def api_statistics():
+    """Get signal statistics and portfolio data"""
+    try:
+        stats = bot.logger.get_signal_statistics()
+        
+        # Add portfolio monitoring data
+        portfolio_summary = bot.signal_engine.risk_manager.get_portfolio_summary()
+        stats['portfolio'] = portfolio_summary
+        
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'total_signals': 0,
+            'today_signals': 0,
+            'avg_confidence': 0,
+            'top_symbols': [],
+            'portfolio': {}
+        })
 
-@app.route('/statistics')
-def get_statistics():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
-    stats = bot.logger.get_signal_statistics()
-    return jsonify(stats)
+@app.route('/api/scan-now')
+def api_scan_now():
+    """Trigger immediate market scan"""
+    try:
+        if bot.running:
+            # Start scan in background
+            thread = threading.Thread(target=bot.scan_and_generate_signals)
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Market scan initiated'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Bot not running'
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        })
 
-@app.route('/portfolio')
-def get_portfolio():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
-    portfolio_summary = bot.signal_engine.risk_manager.get_portfolio_summary()
-    return jsonify(portfolio_summary)
+@app.route('/api/portfolio')
+def api_portfolio():
+    """Get portfolio monitoring data"""
+    try:
+        portfolio_data = bot.signal_engine.risk_manager.get_portfolio_summary()
+        active_trades = bot.signal_engine.risk_manager.active_trades
+        
+        return jsonify({
+            'portfolio': portfolio_data,
+            'active_trades': active_trades,
+            'success': True
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'portfolio': {},
+            'active_trades': {}
+        })
 
-@app.route('/scan', methods=['POST'])
-def manual_scan():
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
-    if bot.running:
-        # Run scan in background thread to avoid blocking
-        thread = threading.Thread(target=bot.scan_and_generate_signals)
-        thread.daemon = True
-        thread.start()
-        return jsonify({'status': 'scan_started'})
-    else:
-        return jsonify({'status': 'bot_not_running'}), 400
+@app.route('/api/market-regime')
+def api_market_regime():
+    """Get market regime analysis"""
+    try:
+        # Get recent market data for analysis
+        markets = bot.signal_engine.scanner.get_top_markets(limit=10)
+        regime_summary = bot.signal_engine.market_regime_detector.get_regime_summary(markets)
+        
+        return jsonify({
+            'regime_summary': regime_summary,
+            'success': True
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'regime_summary': {}
+        })
 
 @app.route('/api/sentiment')
 def api_sentiment():
     """Get market sentiment analysis"""
-    if bot is None:
-        return jsonify({'error': 'Bot not initialized yet'}), 503
     try:
         # Get top symbols for sentiment analysis
         symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT']
@@ -314,29 +372,10 @@ def api_sentiment():
 if __name__ == '__main__':
     # Start Flask server
     port = int(os.environ.get('PORT', 8080))
-    
     print(f"🚀 Enhanced ScalpBot v2.0.0 starting...")
     print(f"📡 Flask server starting on port {port}")
     print(f"🔧 Modular architecture with signal engine")
     print(f"📊 Multi-strategy system (Trap, SMC, Scalping)")
     print(f"✅ Telegram delivery system ready")
     
-    # Import here to avoid circular imports
-    from core.signal_engine import SignalEngine
-    from core.logger import SignalLogger
-    from core.notifier import SignalNotifier
-    
-    # Initialize bot after Flask server starts
-    def init_bot():
-        global bot
-        bot = EnhancedScalpBot()
-        print("🤖 Bot initialized and ready!")
-    
-    # Start bot initialization in background thread
-    import threading
-    init_thread = threading.Thread(target=init_bot)
-    init_thread.daemon = True
-    init_thread.start()
-    
-    # Start Flask server immediately
     app.run(host='0.0.0.0', port=port, debug=False) 
