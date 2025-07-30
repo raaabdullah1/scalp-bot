@@ -1,0 +1,7 @@
+ScalpBot v2.0.0 - Deployment Package
+Build Date: 2025-07-30
+Status: Ready for Deployment
+
+This package contains all necessary files for deploying the ScalpBot trading signal generator.
+
+For deployment instructions, see DEPLOYMENT_README.md
