@@ -188,160 +188,107 @@ class EnhancedScalpBot:
         self.running = False
         self.status['running'] = False
 
-# Create bot instance
-bot = EnhancedScalpBot()
+# Global bot instance (initialized later)
+bot = None
 
 # Flask routes
 @app.route('/')
 def home():
+    if bot is None:
+        return render_template('dashboard.html', bot_status={'running': False, 'status': 'Initializing...'})
     return render_template('dashboard.html', bot_status=bot.status)
 
 @app.route('/health')
 def health():
+    # Simple health check that responds immediately
     return jsonify({
-        'status': 'enhanced_scalbot_ready',
-        'bot_running': bot.status['running'],
+        'status': 'ok',
+        'service': 'scalpbot',
         'version': '2.0.0'
     })
 
-@app.route('/api/status')
-def api_status():
+@app.route('/status')
+def get_status():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
     return jsonify(bot.status)
 
-@app.route('/api/start')
-def api_start():
+@app.route('/start', methods=['POST'])
+def start_bot():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
     if not bot.running:
         bot.start()
-        return jsonify({'status': 'Bot starting', 'running': True})
-    return jsonify({'status': 'Bot already running', 'running': True})
+        return jsonify({'status': 'started'})
+    return jsonify({'status': 'already_running'}), 200
 
-@app.route('/api/stop')
-def api_stop():
+@app.route('/stop', methods=['POST'])
+def stop_bot():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
     if bot.running:
         bot.stop()
-        return jsonify({'status': 'Bot stopping', 'running': False})
-    return jsonify({'status': 'Bot already stopped', 'running': False})
+        return jsonify({'status': 'stopped'})
+    return jsonify({'status': 'not_running'}), 200
 
-@app.route('/api/test-signal')
-def test_signal():
-    """Send a test signal"""
+@app.route('/test_telegram', methods=['POST'])
+def test_telegram():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
     try:
         test_message = bot.notifier.format_test_message()
         success = bot.send_telegram_message(test_message)
-        
         return jsonify({
             'success': success,
-            'message': 'Test signal sent - Enhanced ScalpBot Ready' if success else 'Failed to send test signal'
+            'message': 'Test message sent' if success else 'Failed to send test message'
         })
     except Exception as e:
         return jsonify({
             'success': False,
-            'message': f'Error: {str(e)}'
-        })
-
-@app.route('/api/signals')
-def api_signals():
-    """Get recent signals"""
-    try:
-        return jsonify({
-            'signals': bot.last_signals,
-            'count': len(bot.last_signals)
-        })
-    except Exception as e:
-        return jsonify({
-            'signals': [],
-            'count': 0,
             'error': str(e)
-        })
+        }), 500
 
-@app.route('/api/statistics')
-def api_statistics():
-    """Get signal statistics and portfolio data"""
-    try:
-        stats = bot.logger.get_signal_statistics()
-        
-        # Add portfolio monitoring data
-        portfolio_summary = bot.signal_engine.risk_manager.get_portfolio_summary()
-        stats['portfolio'] = portfolio_summary
-        
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'total_signals': 0,
-            'today_signals': 0,
-            'avg_confidence': 0,
-            'top_symbols': [],
-            'portfolio': {}
-        })
+@app.route('/signals')
+def get_signals():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
+    return jsonify({
+        'signals': bot.last_signals,
+        'count': len(bot.last_signals)
+    })
 
-@app.route('/api/scan-now')
-def api_scan_now():
-    """Trigger immediate market scan"""
-    try:
-        if bot.running:
-            # Start scan in background
-            thread = threading.Thread(target=bot.scan_and_generate_signals)
-            thread.daemon = True
-            thread.start()
-            
-            return jsonify({
-                'success': True,
-                'message': 'Market scan initiated'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Bot not running'
-            })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'Error: {str(e)}'
-        })
+@app.route('/statistics')
+def get_statistics():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
+    stats = bot.logger.get_signal_statistics()
+    return jsonify(stats)
 
-@app.route('/api/portfolio')
-def api_portfolio():
-    """Get portfolio monitoring data"""
-    try:
-        portfolio_data = bot.signal_engine.risk_manager.get_portfolio_summary()
-        active_trades = bot.signal_engine.risk_manager.active_trades
-        
-        return jsonify({
-            'portfolio': portfolio_data,
-            'active_trades': active_trades,
-            'success': True
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'portfolio': {},
-            'active_trades': {}
-        })
+@app.route('/portfolio')
+def get_portfolio():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
+    portfolio_summary = bot.signal_engine.risk_manager.get_portfolio_summary()
+    return jsonify(portfolio_summary)
 
-@app.route('/api/market-regime')
-def api_market_regime():
-    """Get market regime analysis"""
-    try:
-        # Get recent market data for analysis
-        markets = bot.signal_engine.scanner.get_top_markets(limit=10)
-        regime_summary = bot.signal_engine.market_regime_detector.get_regime_summary(markets)
-        
-        return jsonify({
-            'regime_summary': regime_summary,
-            'success': True
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'regime_summary': {}
-        })
+@app.route('/scan', methods=['POST'])
+def manual_scan():
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
+    if bot.running:
+        # Run scan in background thread to avoid blocking
+        thread = threading.Thread(target=bot.scan_and_generate_signals)
+        thread.daemon = True
+        thread.start()
+        return jsonify({'status': 'scan_started'})
+    else:
+        return jsonify({'status': 'bot_not_running'}), 400
 
 @app.route('/api/sentiment')
 def api_sentiment():
     """Get market sentiment analysis"""
+    if bot is None:
+        return jsonify({'error': 'Bot not initialized yet'}), 503
     try:
         # Get top symbols for sentiment analysis
         symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'SOL/USDT']
@@ -361,10 +308,28 @@ def api_sentiment():
 if __name__ == '__main__':
     # Start Flask server
     port = int(os.environ.get('PORT', 8080))
+    
     print(f"🚀 Enhanced ScalpBot v2.0.0 starting...")
     print(f"📡 Flask server starting on port {port}")
     print(f"🔧 Modular architecture with signal engine")
     print(f"📊 Multi-strategy system (Trap, SMC, Scalping)")
     print(f"✅ Telegram delivery system ready")
+    
+    # Import here to avoid circular imports
+    from core.signal_engine import SignalEngine
+    from core.logger import SignalLogger
+    from core.notifier import SignalNotifier
+    
+    # Initialize bot after Flask server starts
+    def init_bot():
+        global bot
+        bot = EnhancedScalpBot()
+        print("🤖 Bot initialized and ready!")
+    
+    # Start bot initialization in background thread
+    import threading
+    init_thread = threading.Thread(target=init_bot)
+    init_thread.daemon = True
+    init_thread.start()
     
     app.run(host='0.0.0.0', port=port, debug=False) 
