@@ -30,6 +30,26 @@ except ImportError:
     BINANCE_API_KEY = BINANCE_SECRET_KEY = GMAIL_APP_PASSWORD = None
     ACCOUNT_BALANCE = RISK_PERCENTAGE = MAX_DAILY_SIGNALS = COOLDOWN_MINUTES = None
 
+# --- CATCH IMPORT ERRORS FOR CORE MODULES ---
+try:
+    from core.signal_engine import SignalEngine
+    print('[BOOT] Imported core.signal_engine.SignalEngine')
+except Exception as e:
+    print(f'[IMPORT ERROR] core.signal_engine: {e}')
+    raise
+try:
+    from core.logger import SignalLogger
+    print('[BOOT] Imported core.logger.SignalLogger')
+except Exception as e:
+    print(f'[IMPORT ERROR] core.logger: {e}')
+    raise
+try:
+    from core.notifier import SignalNotifier
+    print('[BOOT] Imported core.notifier.SignalNotifier')
+except Exception as e:
+    print(f'[IMPORT ERROR] core.notifier: {e}')
+    raise
+
 app = Flask(__name__)
 
 # --- GLOBAL BOT STATE ---
